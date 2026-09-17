@@ -42,6 +42,7 @@ import com.jpexs.decompiler.flash.types.shaperecords.EndShapeRecord;
 import com.jpexs.decompiler.flash.types.shaperecords.StraightEdgeRecord;
 import com.jpexs.decompiler.flash.types.shaperecords.StyleChangeRecord;
 import com.jpexs.helpers.ByteArrayRange;
+import com.jpexs.helpers.Helper;
 import com.jpexs.helpers.SerializableImage;
 import java.awt.Dimension;
 import java.awt.Shape;
@@ -49,6 +50,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Set;
 
@@ -210,6 +212,26 @@ public abstract class ImageTag extends DrawableTag {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ImageHelper.write(getImage().getBufferedImage(), getImageFormat(), baos);
         return new ByteArrayInputStream(baos.toByteArray());
+    }
+
+    /**
+     * Writes the same bytes {@link #getImageData()} would return, straight to a destination.
+     *
+     * <p>Same bytes, without building the whole encoded image in memory and then copying it again
+     * to hand it over. A tag whose original bytes are usable streams them; one that has to be
+     * encoded encodes into the destination.</p>
+     *
+     * @param output Output stream
+     * @throws IOException On I/O error
+     */
+    public void writeImageData(OutputStream output) throws IOException {
+        InputStream is = getOriginalImageData();
+        if (is != null) {
+            Helper.copyStreamEx(is, output);
+            return;
+        }
+
+        ImageHelper.writeConverted(getImage().getBufferedImage(), getImageFormat(), output);
     }
 
     /**
@@ -382,6 +404,11 @@ public abstract class ImageTag extends DrawableTag {
         return true;
     }
 
+    /**
+     * Drops everything this tag can produce again from the bytes it keeps. Subclasses that hold
+     * decoded pixel data override this to release that too; see
+     * {@link DecodedBitmapBudget}.
+     */
     public void clearCache() {
         cachedImage = null;
     }

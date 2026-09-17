@@ -22,6 +22,7 @@ import com.jpexs.decompiler.flash.SWFOutputStream;
 import com.jpexs.decompiler.flash.dumpview.DumpInfoSpecialType;
 import com.jpexs.decompiler.flash.helpers.ImageHelper;
 import com.jpexs.decompiler.flash.tags.base.AloneTag;
+import com.jpexs.decompiler.flash.tags.base.DecodedBitmapBudget;
 import com.jpexs.decompiler.flash.tags.base.ImageTag;
 import com.jpexs.decompiler.flash.tags.enums.ImageFormat;
 import com.jpexs.decompiler.flash.types.ALPHABITMAPDATA;
@@ -29,8 +30,6 @@ import com.jpexs.decompiler.flash.types.ALPHACOLORMAPDATA;
 import com.jpexs.decompiler.flash.types.BasicType;
 import com.jpexs.decompiler.flash.types.annotations.Conditional;
 import com.jpexs.decompiler.flash.types.annotations.EnumValue;
-import com.jpexs.decompiler.flash.types.annotations.HideInRawEdit;
-import com.jpexs.decompiler.flash.types.annotations.Internal;
 import com.jpexs.decompiler.flash.types.annotations.SWFType;
 import com.jpexs.decompiler.flash.types.annotations.SWFVersion;
 import com.jpexs.helpers.ByteArrayRange;
@@ -49,7 +48,7 @@ import java.util.logging.Logger;
  * @author JPEXS
  */
 @SWFVersion(from = 3)
-public class DefineBitsLossless2Tag extends ImageTag implements AloneTag {
+public class DefineBitsLossless2Tag extends ImageTag implements AloneTag, DecodedBitmapBudget.Holder {
 
     public static final int ID = 36;
 
@@ -76,14 +75,30 @@ public class DefineBitsLossless2Tag extends ImageTag implements AloneTag {
 
     public static final int FORMAT_32BIT_ARGB = 5;
 
-    @HideInRawEdit
-    private ALPHACOLORMAPDATA colorMapData;
+    /**
+     * Decoded pixels, or null when they have been released. Held as one object so that a reader
+     * racing a release sees either all of it or none of it, never a half-cleared tag. Released
+     * copies are produced again from {@link #zlibBitmapData}, which is never dropped.
+     */
+    private volatile Decoded decoded;
 
-    @HideInRawEdit
-    private ALPHABITMAPDATA bitmapData;
+    /**
+     * The decoded forms of one lossless bitmap, whichever of them this tag's format uses.
+     */
+    private static final class Decoded {
 
-    @Internal
-    private boolean decompressed = false;
+        final ALPHACOLORMAPDATA colorMapData;
+
+        final ALPHABITMAPDATA bitmapData;
+
+        final long bytes;
+
+        Decoded(ALPHACOLORMAPDATA colorMapData, ALPHABITMAPDATA bitmapData, long bytes) {
+            this.colorMapData = colorMapData;
+            this.bitmapData = bitmapData;
+            this.bytes = bytes;
+        }
+    }
 
     /**
      * Constructor
@@ -190,38 +205,114 @@ public class DefineBitsLossless2Tag extends ImageTag implements AloneTag {
         bitmapFormat = format;
         bitmapWidth = width;
         bitmapHeight = height;
-        decompressed = false;
+        releaseDecodedBitmap();
         clearCache();
         setModified(true);
     }
 
     public ALPHACOLORMAPDATA getColorMapData() {
-        if (!decompressed) {
-            uncompressData();
-        }
-        return colorMapData;
+        return decoded().colorMapData;
     }
 
     public ALPHABITMAPDATA getBitmapData() {
-        if (!decompressed) {
-            uncompressData();
-        }
-        return bitmapData;
+        return decoded().bitmapData;
     }
 
-    private void uncompressData() {
+    /**
+     * Decoded pixels, decoding them first if this tag is not holding them.
+     *
+     * <p>Not synchronized on purpose. Two threads arriving together both decode and one wins, which
+     * is what the field did before; taking this tag's lock here instead would put a tag lock under
+     * the budget's, and the budget releases other tags while evicting.</p>
+     */
+    private Decoded decoded() {
+        Decoded current = decoded;
+        if (current != null) {
+            DecodedBitmapBudget.touch(this);
+            return current;
+        }
+        DecodedBitmapBudget.reserve(decodedBitmapBytes(), this);
+        current = uncompressData();
+        decoded = current;
+        DecodedBitmapBudget.retained(this, current.bytes);
+        return current;
+    }
+
+    private Decoded uncompressData() {
+        ALPHACOLORMAPDATA newColorMapData = null;
+        ALPHABITMAPDATA newBitmapData = null;
         try {
-            byte[] uncompressedData = SWFInputStream.uncompressByteArray(zlibBitmapData.getArray(), zlibBitmapData.getPos(), zlibBitmapData.getLength());
+            byte[] uncompressedData = SWFInputStream.uncompressByteArray(zlibBitmapData.getArray(), zlibBitmapData.getPos(), zlibBitmapData.getLength(), uncompressedSize());
             SWFInputStream sis = new SWFInputStream(swf, uncompressedData);
             if (bitmapFormat == FORMAT_8BIT_COLORMAPPED) {
-                colorMapData = sis.readALPHACOLORMAPDATA(bitmapColorTableSize, bitmapWidth, bitmapHeight, "colorMapData");
+                newColorMapData = sis.readALPHACOLORMAPDATA(bitmapColorTableSize, bitmapWidth, bitmapHeight, "colorMapData");
             } else if (bitmapFormat == FORMAT_32BIT_ARGB) {
-                bitmapData = sis.readALPHABITMAPDATA(bitmapFormat, bitmapWidth, bitmapHeight, "bitmapData");
+                newBitmapData = sis.readALPHABITMAPDATA(bitmapFormat, bitmapWidth, bitmapHeight, "bitmapData");
             }
         } catch (IOException ex) {
             //ignored
         }
-        decompressed = true;
+        // A failed decode is still cached, as the old decompressed flag did, so a malformed tag is
+        // not decoded again on every access. It holds nothing, so the budget is not told about it.
+        long bytes = newColorMapData == null && newBitmapData == null ? 0 : decodedBitmapBytes();
+        return new Decoded(newColorMapData, newBitmapData, bytes);
+    }
+
+    /**
+     * Decoded size this bitmap occupies, from the header alone - no decoding, and valid before it.
+     *
+     * @return Bytes, 0 for a format this tag does not decode
+     */
+    private long decodedBitmapBytes() {
+        if (bitmapFormat == FORMAT_8BIT_COLORMAPPED) {
+            return 4L * (bitmapColorTableSize + 1) + (long) align4(bitmapWidth) * bitmapHeight;
+        }
+        if (bitmapFormat == FORMAT_32BIT_ARGB) {
+            return 4L * bitmapWidth * bitmapHeight;
+        }
+        return 0;
+    }
+
+    /**
+     * Exactly what the readers below will consume, so the inflated stream is allocated once at its
+     * final size instead of being grown and then copied.
+     *
+     * <p>Equal to the decoded size for this tag, and only for this tag: every one of its components
+     * is the same width in the stream as in memory. {@link DefineBitsLosslessTag} has to compute the
+     * two separately, because 15-bit pixels arrive in two bytes and colour table entries in three,
+     * and both become ints.</p>
+     *
+     * @return Bytes, 0 when unknown
+     */
+    private int uncompressedSize() {
+        long size = decodedBitmapBytes();
+        return size <= 0 || size > Integer.MAX_VALUE ? 0 : (int) size;
+    }
+
+    private static int align4(int value) {
+        return (value + 3) & ~3;
+    }
+
+    @Override
+    public void releaseDecodedBitmap() {
+        decoded = null;
+        DecodedBitmapBudget.discard(this);
+    }
+
+    @Override
+    public boolean isDecodedBitmapEdited() {
+        return isModified();
+    }
+
+    @Override
+    public String describeDecodedBitmap() {
+        return NAME + " " + characterID + " (" + bitmapWidth + "x" + bitmapHeight + ")";
+    }
+
+    @Override
+    public void clearCache() {
+        super.clearCache();
+        releaseDecodedBitmap();
     }
 
     @Override

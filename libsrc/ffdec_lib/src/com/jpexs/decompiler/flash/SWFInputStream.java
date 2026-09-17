@@ -1146,14 +1146,56 @@ public class SWFInputStream implements AutoCloseable {
      * @throws IOException On I/O error
      */
     public static byte[] uncompressByteArray(byte[] data, int offset, int length) throws IOException {
-        InflaterInputStream dis = new InflaterInputStream(new ByteArrayInputStream(data, offset, length));
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        byte[] buf = new byte[4096];
-        int c;
-        while ((c = dis.read(buf)) > 0) {
-            baos.write(buf, 0, c);
+        // Closed, so that the Inflater releases its native zlib state now rather than at some later
+        // finalization. A file with thousands of images leaks tens of megabytes outside the heap
+        // otherwise, which a container memory limit counts and a heap setting does not bound.
+        try (InflaterInputStream dis = new InflaterInputStream(new ByteArrayInputStream(data, offset, length))) {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int c;
+            while ((c = dis.read(buf)) > 0) {
+                baos.write(buf, 0, c);
+            }
+            return baos.toByteArray();
         }
-        return baos.toByteArray();
+    }
+
+    /**
+     * Uncompresses byte array whose uncompressed length is already known.
+     *
+     * <p>The growing variant above allocates a doubling buffer and then copies the whole thing once
+     * more in {@code toByteArray}, so decoding a 36 MiB bitmap touched roughly three times its own
+     * size in transient buffers - and the copy is where an image-heavy SWF was measured running out
+     * of heap. A caller that can compute the exact length from a header inflates straight into a
+     * buffer of that size instead.</p>
+     *
+     * <p>Trailing bytes past {@code expectedSize} are dropped: the callers read a fixed structure
+     * whose length this is. A stream that ends early is returned as short as it really is, so that
+     * the reader still reports the end of stream it would have reported before.</p>
+     *
+     * @param data Data
+     * @param offset Offset
+     * @param length Length
+     * @param expectedSize Expected uncompressed length, 0 or less when unknown
+     * @return Uncompressed data
+     * @throws IOException On I/O error
+     */
+    public static byte[] uncompressByteArray(byte[] data, int offset, int length, int expectedSize) throws IOException {
+        if (expectedSize <= 0) {
+            return uncompressByteArray(data, offset, length);
+        }
+        try (InflaterInputStream dis = new InflaterInputStream(new ByteArrayInputStream(data, offset, length))) {
+            byte[] out = new byte[expectedSize];
+            int total = 0;
+            while (total < expectedSize) {
+                int c = dis.read(out, total, expectedSize - total);
+                if (c <= 0) {
+                    break;
+                }
+                total += c;
+            }
+            return total == expectedSize ? out : Arrays.copyOf(out, total);
+        }
     }
 
     /**

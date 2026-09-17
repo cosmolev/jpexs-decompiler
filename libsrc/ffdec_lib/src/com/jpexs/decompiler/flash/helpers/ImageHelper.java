@@ -142,27 +142,47 @@ public class ImageHelper {
      * @param output Output byte array
      */
     public static void write(BufferedImage image, ImageFormat format, ByteArrayOutputStream output) {
+        try {
+            writeConverted(image, format, (OutputStream) output);
+        } catch (IOException ex) {
+            Logger.getLogger(ImageHelper.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    /**
+     * Writes image to output stream, converting it first the way the byte-array variant does.
+     *
+     * <p>This differs from {@link #write(BufferedImage, ImageFormat, OutputStream)}, which writes
+     * whatever it is given: a premultiplied image has to be divided out before it is encoded, or
+     * every partly transparent pixel is written darker than it is. Streaming straight to the
+     * destination saves holding the whole encoded image, and then a second copy of it, in memory -
+     * which for an exporter writing to a file is all it was ever used for.</p>
+     *
+     * <p>The conversion no longer divides the alpha of the image it was handed in place. Doing so
+     * left a cached image permanently brightened, so that writing the same image twice produced two
+     * different files.</p>
+     *
+     * @param image Image
+     * @param format Image format
+     * @param output Output stream
+     * @throws IOException On I/O error
+     */
+    public static void writeConverted(BufferedImage image, ImageFormat format, OutputStream output) throws IOException {
         String formatName = getImageFormatString(format).toUpperCase(Locale.ENGLISH);
         if (format == ImageFormat.JPEG) {
             image = fixImageIOJpegBug(image);
         } else if (image.getType() == BufferedImage.TYPE_INT_ARGB_PRE) {
             BufferedImage image2 = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
             int[] pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
-            divideAlpha(pixels);
-
             int[] pixels2 = ((DataBufferInt) image2.getRaster().getDataBuffer()).getData();
             for (int i = 0; i < pixels.length; i++) {
-                pixels2[i] = pixels[i];
+                pixels2[i] = divideAlpha(pixels[i]);
             }
 
             image = image2;
         }
 
-        try {
-            ImageIO.write(image, formatName, output);
-        } catch (IOException ex) {
-            Logger.getLogger(ImageHelper.class.getName()).log(Level.SEVERE, null, ex);
-        }
+        ImageIO.write(image, formatName, output);
     }
 
     private static int max255(float val) {
@@ -170,12 +190,6 @@ public class ImageHelper {
             return 255;
         }
         return (int) val;
-    }
-
-    private static void divideAlpha(int[] pixels) {
-        for (int i = 0; i < pixels.length; i++) {
-            pixels[i] = divideAlpha(pixels[i]);
-        }
     }
 
     private static int divideAlpha(int value) {

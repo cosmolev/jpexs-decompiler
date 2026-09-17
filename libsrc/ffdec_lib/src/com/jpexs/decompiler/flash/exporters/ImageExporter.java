@@ -135,8 +135,18 @@ public class ImageExporter {
 
                 new RetryTask(() -> {
                     if (ffileFormat == originalFormat) {
+                        // Streamed rather than read into a byte array first: the encoded image and
+                        // the copy of it were both held whole, on top of the decoded pixels this
+                        // tag is still holding. Deleting a file whose write threw keeps a refused
+                        // image from being left behind as an empty one, which reads as corruption.
+                        boolean written = false;
                         try (OutputStream fos = new BufferedOutputStream(new FileOutputStream(file))) {
-                            fos.write(Helper.readStream(imageTag.getImageData()));
+                            imageTag.writeImageData(fos);
+                            written = true;
+                        } finally {
+                            if (!written) {
+                                file.delete();
+                            }
                         }
                     } else if (ffileFormat == ImageFormat.BMP) {
                         BMPFile.saveBitmap(imageTag.getImageCached().getBufferedImage(), file);
@@ -154,6 +164,21 @@ public class ImageExporter {
                         ImageHelper.write(imageTag.getImageCached().getBufferedImage(), ffileFormat, file);
                     }
                 }, handler).run();
+
+                if (!file.isFile()) {
+                    // The handler chose to ignore whatever the write threw - a bitmap too large to
+                    // decode, most likely. Everything else in this export is unaffected.
+                    if (evl != null) {
+                        evl.handleExportedEvent("image", currentIndex, count, t.getName());
+                    }
+
+                    currentIndex++;
+                    if (CancellableWorker.isInterrupted()) {
+                        break;
+                    }
+
+                    continue;
+                }
 
                 final File alphaPngFile = new File(outdir + File.separator + Helper.makeFileName(imageTag.getCharacterExportFileName() + ".alpha.png"));
 
