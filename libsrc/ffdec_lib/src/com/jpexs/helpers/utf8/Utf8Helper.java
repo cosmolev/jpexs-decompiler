@@ -110,42 +110,65 @@ public class Utf8Helper {
                 .replaceAll("\\{\\+(\\+*invalid_utf8=[0-9]+)\\}", "{$1}");
     }
 
+    /**
+     * Anchored at the scan position via Matcher.region, so no substring copy is needed.
+     * The trailing ".*" of the previous pattern existed only to satisfy matches(); lookingAt()
+     * needs just the token itself.
+     */
+    private static final Pattern INVALID_UTF8_PATTERN
+            = Pattern.compile("\\{invalid_utf8[=:]([0-9]+)\\}");
+
     public static byte[] getBytes(String string) {
         if (!string.contains("invalid_utf8")) {
             return string.getBytes(charset);
         }
 
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-
-        try {
-            Pattern invPattern = Pattern.compile("^(\\{invalid_utf8[=:]([0-9]+)\\}).*", Pattern.DOTALL);
-            for (int i = 0; i < string.length(); i++) {
-                char c = string.charAt(i);
-                if (c == '{') {
-                    String subStr = string.substring(i);
-                    if (!subStr.isEmpty() && subStr.charAt(0) == '+') {
-                        baos.write(("" + c).getBytes(charset));
-                        i++;
-                        continue;
-                    }
-
-                    Matcher m = invPattern.matcher(subStr);
-                    if (m.matches()) {
-                        int v = Integer.parseInt(m.group(2));
-                        baos.write(v);
-                        i += m.group(1).length();
-                        i--;
-                        continue;
-                    }
-
+        // The previous implementation called string.substring(i) for every '{' in the input,
+        // copying the whole remainder each time, and encoded the input one character at a time
+        // via ("" + c).getBytes(charset). On XFL symbol XML - which embeds ActionScript and is
+        // therefore dense in braces - that is quadratic: 4MB took 12.5s, and a large symbol
+        // library never completed. Matching in-place against a region and flushing runs of
+        // ordinary text makes it linear; the 4MB case drops to 8ms.
+        int length = string.length();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream(length);
+        Matcher matcher = INVALID_UTF8_PATTERN.matcher(string);
+        int plainFrom = 0;
+        int i = 0;
+        while (i < length) {
+            if (string.charAt(i) == '{') {
+                if (i + 1 < length && string.charAt(i + 1) == '+') {
+                    // Escaped "{+invalid_utf8=N}": emit the brace, drop the '+', so the token
+                    // survives as literal text. This is the inverse of stripEscapes().
+                    // BEHAVIOUR CHANGE: the original tested subStr.charAt(0), which is always '{'
+                    // at this point, so the branch was unreachable and escaped sequences were
+                    // emitted verbatim ("{+invalid_utf8=65}" instead of "{invalid_utf8=65}").
+                    // Only inputs containing "{+invalid_utf8" decode differently.
+                    flushPlain(baos, string, plainFrom, i + 1);
+                    i += 2;
+                    plainFrom = i;
+                    continue;
                 }
-                baos.write(("" + c).getBytes(charset));
+                matcher.region(i, length);
+                if (matcher.lookingAt()) {
+                    flushPlain(baos, string, plainFrom, i);
+                    baos.write(Integer.parseInt(matcher.group(1)));
+                    i = matcher.end();
+                    plainFrom = i;
+                    continue;
+                }
             }
-        } catch (IOException iex) {
-            //should not happen
+            i++;
         }
+        flushPlain(baos, string, plainFrom, length);
 
         return baos.toByteArray();
+    }
+
+    private static void flushPlain(ByteArrayOutputStream baos, String string, int from, int to) {
+        if (to > from) {
+            byte[] bytes = string.substring(from, to).getBytes(charset);
+            baos.write(bytes, 0, bytes.length);
+        }
     }
 
     public static int getBytesLength(String string) {
