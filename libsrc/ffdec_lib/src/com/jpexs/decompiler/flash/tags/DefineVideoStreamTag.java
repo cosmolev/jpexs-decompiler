@@ -148,6 +148,12 @@ public class DefineVideoStreamTag extends DrawableTag implements BoundedTag, Tim
     @Internal
     private boolean renderingPaused = false;
 
+    /**
+     * Cached result of {@link #videoBackendAvailable()}. Null until first asked; the answer cannot
+     * change within a JVM, and a failed link is re-thrown on every attempt, so it is worth keeping.
+     */
+    private static Boolean videoBackendAvailable = null;
+
     public static final int CODEC_JPEG = 1;
     public static final int CODEC_SORENSON_H263 = 2;
     public static final int CODEC_SCREEN_VIDEO = 3;
@@ -276,7 +282,38 @@ public class DefineVideoStreamTag extends DrawableTag implements BoundedTag, Tim
     }
 
     public static boolean displayAvailable() {
-        return SimpleMediaPlayer.isAvailable();
+        return videoBackendAvailable();
+    }
+
+    /**
+     * Whether the optional VLC video backend can be used at all.
+     * <p>
+     * {@link SimpleMediaPlayer} is compiled against vlcj and JNA, which are optional: a deployment
+     * that ships ffdec_lib alone has neither on the classpath. Resolving the class then fails
+     * before {@code isAvailable()} can return false - linking it needs
+     * {@code uk.co.caprica.vlcj...RenderCallback} - so the availability check itself throws
+     * {@link NoClassDefFoundError}. That is an {@link Error}, not an {@link Exception}, so callers
+     * that guard an export run with {@code catch (Exception)} lose the whole run rather than the
+     * one video frame.
+     * <p>
+     * Only {@link LinkageError} is treated as "no backend": that covers the absent jars
+     * ({@code NoClassDefFoundError}), an absent native libvlc ({@code UnsatisfiedLinkError}) and a
+     * static initialiser that threw ({@code ExceptionInInitializerError}). Anything else - an
+     * {@code OutOfMemoryError} above all - is a real failure and propagates.
+     *
+     * @return true if video frames can be rendered
+     */
+    private static synchronized boolean videoBackendAvailable() {
+        if (videoBackendAvailable == null) {
+            try {
+                videoBackendAvailable = SimpleMediaPlayer.isAvailable();
+            } catch (LinkageError ex) {
+                Logger.getLogger(DefineVideoStreamTag.class.getName()).log(Level.FINE,
+                        "Video backend unavailable, video will render as a placeholder", ex);
+                videoBackendAvailable = false;
+            }
+        }
+        return videoBackendAvailable;
     }
 
     private void initPlayer() {
@@ -341,7 +378,7 @@ public class DefineVideoStreamTag extends DrawableTag implements BoundedTag, Tim
     @Override
     public synchronized void toImage(int frame, int time, int ratio, RenderContext renderContext, SerializableImage image, SerializableImage fullImage, boolean isClip, Matrix transformation, Matrix prevTransformation, Matrix absoluteTransformation, Matrix fullTransformation, ColorTransform colorTransform, double unzoom, boolean sameImage, ExportRectangle viewRect, ExportRectangle viewRectRaw, boolean scaleStrokes, int drawMode, int blendMode, boolean canUseSmoothing, int aaScale) {
 
-        if (renderingPaused || !SimpleMediaPlayer.isAvailable()) {
+        if (renderingPaused || !videoBackendAvailable()) {
             Graphics2D g = (Graphics2D) image.getBufferedImage().getGraphics();
             Matrix mat = transformation;
             AffineTransform trans = mat.preConcatenate(Matrix.getScaleInstance(1 / SWF.unitDivisor)).toTransform();
@@ -424,7 +461,7 @@ public class DefineVideoStreamTag extends DrawableTag implements BoundedTag, Tim
 
     @Override
     public void toSVG(int frame, int time, SVGExporter exporter, int ratio, ColorTransform colorTransform, int level, Matrix transformation, Matrix strokeTransformation) throws IOException {
-        if (renderingPaused || !SimpleMediaPlayer.isAvailable()) {
+        if (renderingPaused || !videoBackendAvailable()) {
             return;
         }
         if (ratio == -1) {
