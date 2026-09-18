@@ -26,6 +26,7 @@ import com.jpexs.decompiler.flash.exporters.commonshape.SVGExporter;
 import com.jpexs.decompiler.flash.tags.base.BoundedTag;
 import com.jpexs.decompiler.flash.tags.base.CharacterTag;
 import com.jpexs.decompiler.flash.tags.base.DrawableTag;
+import com.jpexs.decompiler.flash.tags.base.FilterDimensionParts;
 import com.jpexs.decompiler.flash.tags.base.FontTag;
 import com.jpexs.decompiler.flash.tags.base.PlaceObjectTypeTag;
 import com.jpexs.decompiler.flash.tags.base.RemoveTag;
@@ -184,6 +185,10 @@ public class DefineSpriteTag extends DrawableTag implements Timelined {
         if (cache != null) {
             cache.remove(this);
         }
+        if (swf != null) {
+            // Not just this sprite: whatever places it has an answer built from this one.
+            swf.clearFilterDimensionsCache();
+        }
         if (timeline != null) {
             timeline.reset(swf, this, spriteId, getRect());
         }
@@ -231,11 +236,20 @@ public class DefineSpriteTag extends DrawableTag implements Timelined {
 
     @Override
     public Dimension getFilterDimensions() {
+        FilterDimensionParts parts = getFilterDimensionParts();
+        if (swf == null) {
+            // Nothing could be resolved without a SWF, so there is nothing to share
+            // and nowhere to keep it. Only this sprite's own filters are in play.
+            return new Dimension(parts.getLocalDeltaX(), parts.getLocalDeltaY());
+        }
+        return swf.getFilterDimensionsResolver().resolve(this, parts);
+    }
+
+    @Override
+    protected FilterDimensionParts getFilterDimensionParts() {
+        FilterDimensionParts parts = new FilterDimensionParts();
         HashMap<Integer, Integer> depthMap = new HashMap<>();
-        
-        int totalDeltaX = 0;
-        int totalDeltaY = 0;
-        
+
         for (Tag t : getTags()) {
             if (t instanceof RemoveTag) {
                 RemoveTag rt = (RemoveTag) t;
@@ -263,10 +277,7 @@ public class DefineSpriteTag extends DrawableTag implements Timelined {
                     ch = swf.getCharacterByClass(chClass);
                 }
                 if (ch instanceof DrawableTag) {
-                    Dimension filterDimension = ((DrawableTag) ch).getFilterDimensions();
-                    
-                    totalDeltaX = Math.max(totalDeltaX, filterDimension.width);
-                    totalDeltaY = Math.max(totalDeltaY, filterDimension.height);
+                    parts.addPlaced((DrawableTag) ch);
                 }
 
                 double deltaXMax = 0;
@@ -284,13 +295,12 @@ public class DefineSpriteTag extends DrawableTag implements Timelined {
                         deltaYMax += y;
                     }
                     
-                    totalDeltaX = Math.max(totalDeltaX, (int) (Math.ceil(deltaXMax) * SWF.unitDivisor));
-                    totalDeltaY = Math.max(totalDeltaY, (int) (Math.ceil(deltaYMax) * SWF.unitDivisor));
+                    parts.addLocalDelta((int) (Math.ceil(deltaXMax) * SWF.unitDivisor), (int) (Math.ceil(deltaYMax) * SWF.unitDivisor));
                 }                                
             }
         }
     
-        return new Dimension(totalDeltaX, totalDeltaY);
+        return parts;
     }   
     
     @Override

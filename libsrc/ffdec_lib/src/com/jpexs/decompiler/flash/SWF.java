@@ -129,6 +129,7 @@ import com.jpexs.decompiler.flash.tags.base.CharacterIdTag;
 import com.jpexs.decompiler.flash.tags.base.CharacterTag;
 import com.jpexs.decompiler.flash.tags.base.DrawableTag;
 import com.jpexs.decompiler.flash.tags.base.Exportable;
+import com.jpexs.decompiler.flash.tags.base.FilterDimensionsResolver;
 import com.jpexs.decompiler.flash.tags.base.FontTag;
 import com.jpexs.decompiler.flash.tags.base.ImageTag;
 import com.jpexs.decompiler.flash.tags.base.ImportTag;
@@ -487,6 +488,14 @@ public final class SWF implements SWFContainerItem, Timelined, Openable {
      */
     @Internal
     private final Cache<SHAPE, ShapeExportData> shapeExportDataCache = Cache.getInstance(true, true, "shapeExportData", true);
+
+    /**
+     * Filter dimensions of this file's characters. Not a Cache: an entry evicted
+     * mid-walk costs a whole shared subgraph again, which is the thing it exists
+     * to avoid, and one int pair per character is not worth evicting.
+     */
+    @Internal
+    private final FilterDimensionsResolver filterDimensionsResolver = new FilterDimensionsResolver(this);
 
     /**
      * Sound cache.
@@ -911,6 +920,7 @@ public final class SWF implements SWFContainerItem, Timelined, Openable {
         characterToId = null;
         characterIdTags = null;
         externalImages2 = null;
+        filterDimensionsResolver.clear();
     }
 
     /**
@@ -1800,6 +1810,7 @@ public final class SWF implements SWFContainerItem, Timelined, Openable {
      */
     @Override
     public void resetTimeline() {
+        filterDimensionsResolver.clear();
         if (timeline != null) {
             timeline.reset(this);
         }
@@ -4672,6 +4683,7 @@ public final class SWF implements SWFContainerItem, Timelined, Openable {
         externalImages2 = null;
         timeline = null;
         cyclicCharacters = null;
+        filterDimensionsResolver.clear();
         dependentCharacters = null;
         dependentFrames = null;
         clearReadOnlyListCache();
@@ -5004,6 +5016,26 @@ public final class SWF implements SWFContainerItem, Timelined, Openable {
      */
     public Cache<CharacterTag, RECT> getRectCache() {
         return rectCache;
+    }
+
+    /**
+     * Gets resolver of character filter dimensions.
+     *
+     * @return Filter dimensions resolver of this SWF
+     */
+    public FilterDimensionsResolver getFilterDimensionsResolver() {
+        return filterDimensionsResolver;
+    }
+
+    /**
+     * Forgets resolved character filter dimensions.
+     *
+     * A character's filter dimensions depend on everything it places, so any tag,
+     * filter or character id change can move an answer several levels up the
+     * graph and the whole thing is dropped.
+     */
+    public void clearFilterDimensionsCache() {
+        filterDimensionsResolver.clear();
     }
 
     /**

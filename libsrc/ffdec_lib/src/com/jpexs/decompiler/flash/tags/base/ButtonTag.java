@@ -212,6 +212,10 @@ public abstract class ButtonTag extends DrawableTag implements Timelined {
 
     @Override
     public void resetTimeline() {
+        if (swf != null) {
+            // Not just this button: whatever places it has an answer built from this one.
+            swf.clearFilterDimensionsCache();
+        }
         if (timeline != null) {
             timeline.reset(swf, this, getCharacterId(), getRect());
             initTimeline(timeline);
@@ -435,8 +439,18 @@ public abstract class ButtonTag extends DrawableTag implements Timelined {
     
     @Override
     public Dimension getFilterDimensions() {
-        int totalDeltaX = 0;
-        int totalDeltaY = 0;
+        FilterDimensionParts parts = getFilterDimensionParts();
+        if (swf == null) {
+            // Nothing could be resolved without a SWF, so there is nothing to share
+            // and nowhere to keep it. Only this button's own filters are in play.
+            return new Dimension(parts.getLocalDeltaX(), parts.getLocalDeltaY());
+        }
+        return swf.getFilterDimensionsResolver().resolve(this, parts);
+    }
+
+    @Override
+    protected FilterDimensionParts getFilterDimensionParts() {
+        FilterDimensionParts parts = new FilterDimensionParts();
         for (BUTTONRECORD rec : getRecords()) {
             
             int chId = rec.characterId;
@@ -448,10 +462,7 @@ public abstract class ButtonTag extends DrawableTag implements Timelined {
                 }                
             }
             if (ch instanceof DrawableTag) {
-                Dimension filterDimension = ((DrawableTag) ch).getFilterDimensions();
-
-                totalDeltaX = Math.max(totalDeltaX, filterDimension.width);
-                totalDeltaY = Math.max(totalDeltaY, filterDimension.height);
+                parts.addPlaced((DrawableTag) ch);
             }            
             
             double deltaXMax = 0;
@@ -468,11 +479,10 @@ public abstract class ButtonTag extends DrawableTag implements Timelined {
                     deltaYMax += y;
                 }
                 
-                totalDeltaX = Math.max(totalDeltaX, (int) (Math.ceil(deltaXMax) * SWF.unitDivisor));
-                totalDeltaY = Math.max(totalDeltaY, (int) (Math.ceil(deltaYMax) * SWF.unitDivisor));
+                parts.addLocalDelta((int) (Math.ceil(deltaXMax) * SWF.unitDivisor), (int) (Math.ceil(deltaYMax) * SWF.unitDivisor));
             }
         }
-        return new Dimension(totalDeltaX, totalDeltaY);                
+        return parts;                
     }
     
     

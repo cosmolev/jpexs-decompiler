@@ -786,6 +786,12 @@ public abstract class Tag implements NeedsCharacters, Exportable, Serializable {
     public void setModified(boolean value) {
         boolean oldValue = modified;
         modified = value;
+        if (value && swf != null) {
+            // Every edit, not only the first one: a filter, a character id or a whole
+            // placement may have just changed, and a character's filter dimensions are
+            // built from everything it places, so an answer can move several levels up.
+            swf.clearFilterDimensionsCache();
+        }
         if (value && oldValue != value) {
             informListeners();
         }

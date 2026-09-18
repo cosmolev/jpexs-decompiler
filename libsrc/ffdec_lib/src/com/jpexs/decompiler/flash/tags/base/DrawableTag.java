@@ -143,6 +143,23 @@ public abstract class DrawableTag extends CharacterTag implements BoundedTag {
      */
     public abstract boolean isSingleFrame();
     
+    /**
+     * Splits {@link #getFilterDimensions()} into this character's own filter
+     * growth and the characters it places.
+     *
+     * A character that places nothing returns null, which is the default: its
+     * filter dimensions are a constant and there is no subgraph to share. Sprites
+     * and buttons override this so {@link FilterDimensionsResolver} can evaluate
+     * the character graph once rather than once per path through it. An override
+     * must collect exactly what its own getFilterDimensions() would have used,
+     * including which placements it skips.
+     *
+     * @return This character's parts, or null when it places no other character
+     */
+    protected FilterDimensionParts getFilterDimensionParts() {
+        return null;
+    }
+
     @Override
     public RECT getRectWithFilters() {
         RECT r = new RECT(getRectWithStrokes());
