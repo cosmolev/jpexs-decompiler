@@ -62,7 +62,7 @@ public class SerializableImage implements Serializable {
     }
 
     public SerializableImage(int width, int height, int imageType) {
-        image = new BufferedImage(width, height, imageType);
+        image = RenderAllocationBudget.image(width, height, imageType);
     }
 
     public SerializableImage(int width, int height, int imageType, int[] pixels) {
@@ -70,7 +70,7 @@ public class SerializableImage implements Serializable {
             throw new Error("Unsupported image type: " + imageType);
         }
 
-        image = new BufferedImage(width, height, imageType);
+        image = RenderAllocationBudget.image(width, height, imageType);
         image.getRaster().setDataElements(0, 0, width, height, pixels);
     }
 
@@ -79,6 +79,7 @@ public class SerializableImage implements Serializable {
     }
 
     public SerializableImage(int width, int height, int imageType, IndexColorModel cm) {
+        RenderAllocationBudget.pixels(width, height, 4);
         image = new BufferedImage(width, height, imageType, cm);
     }
 

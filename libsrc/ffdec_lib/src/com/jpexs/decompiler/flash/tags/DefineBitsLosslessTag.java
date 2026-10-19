@@ -228,6 +228,7 @@ public class DefineBitsLosslessTag extends ImageTag implements AloneTag, Decoded
             return current;
         }
         DecodedBitmapBudget.reserve(decodedBitmapBytes(), this);
+        com.jpexs.helpers.RenderAllocationBudget.charge(2L * decodedBitmapBytes());
         current = uncompressData();
         decoded = current;
         DecodedBitmapBudget.retained(this, current.bytes);
@@ -333,7 +334,7 @@ public class DefineBitsLosslessTag extends ImageTag implements AloneTag, Decoded
 
     @Override
     protected SerializableImage getImage() {
-        int[] pixels = new int[bitmapWidth * bitmapHeight];
+        int[] pixels = com.jpexs.helpers.RenderAllocationBudget.ints((long) bitmapWidth * bitmapHeight);
         if (bitmapFormat == FORMAT_8BIT_COLORMAPPED) {
             COLORMAPDATA colorMapData = getColorMapData();
             int pos32aligned = 0;

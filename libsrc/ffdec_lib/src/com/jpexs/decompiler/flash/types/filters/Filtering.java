@@ -16,6 +16,7 @@
  */
 package com.jpexs.decompiler.flash.types.filters;
 
+import com.jpexs.helpers.RenderAllocationBudget;
 import com.jpexs.decompiler.flash.configuration.Configuration;
 import com.jpexs.decompiler.flash.types.RGBA;
 import com.jpexs.helpers.SerializableImage;
@@ -175,7 +176,7 @@ public class Filtering {
             }
         }
 
-        int[] secondPass = new int[w * h];
+        int[] secondPass = RenderAllocationBudget.ints((long) w * h);
         boxBlurHorizontal(pixels, secondPass, w, h, radiusX);
         boxBlurVertical(secondPass, newColors, w, h, radiusY);
         System.arraycopy(newColors, 0, pixels, 0, newColors.length);
@@ -367,18 +368,18 @@ public class Filtering {
     }
 
     public static SerializableImage blur(SerializableImage src, int hRadius, int vRadius, int iterations) {
-        int[] pixels = (int[]) getRGB(src.getBufferedImage()).clone();
+        int[] pixels = RenderAllocationBudget.copy(getRGB(src.getBufferedImage()));
         int width = src.getWidth();
         int height = src.getHeight();
         blur(pixels, width, height, hRadius, vRadius, iterations);
-        BufferedImage ret = new BufferedImage(width, height, src.getType());
+        BufferedImage ret = RenderAllocationBudget.image(width, height, src.getType());
         setRGB(ret, width, height, pixels);
         return new SerializableImage(ret);
     }
 
     private static void blur(int[] src, int width, int height, int hRadius, int vRadius, int iterations) {
         int[] inPixels = src;
-        int[] temp = new int[width * height];
+        int[] temp = RenderAllocationBudget.ints((long) width * height);
         for (int i = 0; i < iterations; i++) {
             boxBlurSingleIteration(inPixels, temp, width, height, hRadius, vRadius);
         }
@@ -400,7 +401,7 @@ public class Filtering {
     private static BufferedImage gradientBevel(BufferedImage src, Color[] colors, float[] ratios, int blurX, int blurY, float strength, int type, float angle, float distance, boolean knockout, boolean compositeSource, int iterations) {
         int width = src.getWidth();
         int height = src.getHeight();
-        BufferedImage retImg = new BufferedImage(width, height, src.getType());
+        BufferedImage retImg = RenderAllocationBudget.image(width, height, src.getType());
         int[] srcPixels = getRGB(src);
 
         /*
@@ -417,7 +418,7 @@ public class Filtering {
                 ratios[i] = realMiddle + (ratios[i] - middle) * realMiddle / (1 - middle);
             }
         }*/
-        BufferedImage gradient = new BufferedImage(512, 1, src.getType());
+        BufferedImage gradient = RenderAllocationBudget.image(512, 1, src.getType());
         Graphics2D gg = gradient.createGraphics();
 
         Point p1 = POINT_0_0;
@@ -431,8 +432,8 @@ public class Filtering {
 
         BufferedImage hilightImInner = dropShadow(src, 0, 0, angle, distance, Color.red, true, iterations, strength, true, true);
         BufferedImage shadowImInner = dropShadow(src, 0, 0, angle + 180, distance, Color.blue, true, iterations, strength, true, true);
-        BufferedImage h2Inner = new BufferedImage(width, height, src.getType());
-        BufferedImage s2Inner = new BufferedImage(width, height, src.getType());
+        BufferedImage h2Inner = RenderAllocationBudget.image(width, height, src.getType());
+        BufferedImage s2Inner = RenderAllocationBudget.image(width, height, src.getType());
         Graphics2D hcInner = h2Inner.createGraphics();
         Graphics2D scInner = s2Inner.createGraphics();
         hcInner.drawImage(hilightImInner, 0, 0, null);
@@ -450,8 +451,8 @@ public class Filtering {
 
         BufferedImage hilightImOuter = dropShadow(src, 0, 0, angle + 180, distance, Color.red, false, iterations, strength, true, true);
         BufferedImage shadowImOuter = dropShadow(src, 0, 0, angle, distance, Color.blue, false, iterations, strength, true, true);
-        BufferedImage h2Outer = new BufferedImage(width, height, src.getType());
-        BufferedImage s2Outer = new BufferedImage(width, height, src.getType());
+        BufferedImage h2Outer = RenderAllocationBudget.image(width, height, src.getType());
+        BufferedImage s2Outer = RenderAllocationBudget.image(width, height, src.getType());
         Graphics2D hcOuter = h2Outer.createGraphics();
         Graphics2D scOuter = s2Outer.createGraphics();
         hcOuter.drawImage(hilightImOuter, 0, 0, null);
@@ -515,7 +516,7 @@ public class Filtering {
         int width = src.getWidth();
         int height = src.getHeight();
         int[] srcPixels = getRGB(src);
-        int[] shadow = new int[srcPixels.length];
+        int[] shadow = RenderAllocationBudget.ints(srcPixels.length);
         for (int i = 0; i < srcPixels.length; i++) {
             int alpha = (srcPixels[i] >> 24) & 0xff;
             if (inner) {
@@ -547,7 +548,7 @@ public class Filtering {
     }
 
     private static BufferedImage compose(int width, int height, BufferedImage srcImage, int[] pixels, int type, boolean knockout, boolean compositeSource) {
-        BufferedImage resultImage = new BufferedImage(width, height, srcImage.getType());
+        BufferedImage resultImage = RenderAllocationBudget.image(width, height, srcImage.getType());
         setRGB(resultImage, width, height, pixels);
         Graphics2D g = resultImage.createGraphics();
 
@@ -585,7 +586,7 @@ public class Filtering {
 
         int width = src.getWidth();
         int height = src.getHeight();
-        BufferedImage gradCanvas = new BufferedImage(256, 1, src.getType());
+        BufferedImage gradCanvas = RenderAllocationBudget.image(256, 1, src.getType());
         Graphics2D gg = gradCanvas.createGraphics();
 
         Point p1 = POINT_0_0;
@@ -599,7 +600,7 @@ public class Filtering {
         double moveY = (distance * Math.sin(angleRad));
         int[] srcPixels = getRGB(src);
 
-        int[] shadow = new int[srcPixels.length];
+        int[] shadow = RenderAllocationBudget.ints(srcPixels.length);
         for (int i = 0; i < srcPixels.length; i++) {
             shadow[i] = 0 + ((cut(strength * ((srcPixels[i] >> 24) & 0xff))) << 24);
         }
@@ -624,7 +625,7 @@ public class Filtering {
             return ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
         }
         int width = image.getWidth();
-        return image.getRGB(0, 0, width, image.getHeight(), null, 0, width);
+        return RenderAllocationBudget.rgb(image);
     }
 
     public static void setRGB(BufferedImage image, int width, int height, int[] pixels) {
@@ -637,9 +638,9 @@ public class Filtering {
     }
 
     private static int[] moveRGB(int width, int height, int[] rgb, double deltaX, double deltaY, Color fill) {
-        BufferedImage img = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage img = RenderAllocationBudget.image(width, height, BufferedImage.TYPE_INT_ARGB);
         setRGB(img, width, height, rgb);
-        BufferedImage retImg = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage retImg = RenderAllocationBudget.image(width, height, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = (Graphics2D) retImg.getGraphics();
         g.setPaint(fill);
         g.fillRect(0, 0, width, height);
@@ -669,7 +670,7 @@ public class Filtering {
             int srcHeight
     ) {
         Kernel kernel = new Kernel(w, h, matrix);
-        BufferedImage dst = new BufferedImage(src.getWidth(), src.getHeight(), src.getType());
+        BufferedImage dst = RenderAllocationBudget.image(src.getWidth(), src.getHeight(), src.getType());
         BufferedImageOp op = new ConvolveOp(
                 kernel,
                 new RenderingHints(null),
@@ -693,8 +694,8 @@ public class Filtering {
          WritableRaster displayRaster = sourceRaster.createCompatibleWritableRaster();
          changeColors.filter(sourceRaster, displayRaster);
          return new SerializableImage(src.getColorModel(), displayRaster, true, null);*/
-        BufferedImage dst = new BufferedImage(src.getWidth(), src.getHeight(), src.getType());
-        int[] pixels = getRGB(src.getBufferedImage()).clone();
+        BufferedImage dst = RenderAllocationBudget.image(src.getWidth(), src.getHeight(), src.getType());
+        int[] pixels = RenderAllocationBudget.copy(getRGB(src.getBufferedImage()));
         for (int i = 0; i < pixels.length; i++) {
             int rgb = pixels[i];
             int a = (rgb >> 24) & 0xff;
@@ -753,8 +754,8 @@ public class Filtering {
     public static SerializableImage colorEffect(SerializableImage src,
             int redAddTerm, int greenAddTerm, int blueAddTerm, int alphaAddTerm,
             int redMultTerm, int greenMultTerm, int blueMultTerm, int alphaMultTerm) {
-        BufferedImage dst = new BufferedImage(src.getWidth(), src.getHeight(), src.getType());
-        int[] pixels = getRGB(src.getBufferedImage()).clone();
+        BufferedImage dst = RenderAllocationBudget.image(src.getWidth(), src.getHeight(), src.getType());
+        int[] pixels = RenderAllocationBudget.copy(getRGB(src.getBufferedImage()));
         for (int i = 0; i < pixels.length; i++) {
             int rgb = pixels[i];
             int a = (rgb >> 24) & 0xff;

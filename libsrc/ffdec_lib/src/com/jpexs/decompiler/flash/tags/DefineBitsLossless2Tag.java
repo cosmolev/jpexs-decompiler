@@ -232,6 +232,7 @@ public class DefineBitsLossless2Tag extends ImageTag implements AloneTag, Decode
             return current;
         }
         DecodedBitmapBudget.reserve(decodedBitmapBytes(), this);
+        com.jpexs.helpers.RenderAllocationBudget.charge(2L * decodedBitmapBytes());
         current = uncompressData();
         decoded = current;
         DecodedBitmapBudget.retained(this, current.bytes);

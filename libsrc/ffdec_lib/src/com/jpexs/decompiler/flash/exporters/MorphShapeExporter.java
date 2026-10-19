@@ -383,21 +383,25 @@ public class MorphShapeExporter {
                         File classFile = new File(outdir + File.separator + Helper.makeFileName(className + settings.getFileExtension()));
                         File classFileStart = new File(outdir + File.separator + Helper.makeFileName(className + ".start" + settings.getFileExtension()));
                         File classFileEnd = new File(outdir + File.separator + Helper.makeFileName(className + ".end" + settings.getFileExtension()));
-                        new RetryTask(() -> {
-                            Files.copy(file.toPath(), classFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                        }, handler).run();
-                        ret.add(classFile);
+                        if (file.exists()) {
+                            new RetryTask(() -> {
+                                Files.copy(file.toPath(), classFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                            }, handler).run();
+                            ret.add(classFile);
+                        }
 
                         if (fileStart.exists()) {
                             new RetryTask(() -> {
                                 Files.copy(fileStart.toPath(), classFileStart.toPath(), StandardCopyOption.REPLACE_EXISTING);
                             }, handler).run();
+                            ret.add(classFileStart);
                         }
 
                         if (fileEnd.exists()) {
                             new RetryTask(() -> {
                                 Files.copy(fileEnd.toPath(), classFileEnd.toPath(), StandardCopyOption.REPLACE_EXISTING);
                             }, handler).run();
+                            ret.add(classFileEnd);
                         }
                     }
                     file.delete();
@@ -408,7 +412,9 @@ public class MorphShapeExporter {
                         fileEnd.delete();
                     }
                 } else {
-                    ret.add(file);
+                    if (file.exists()) ret.add(file);
+                    if (fileStart.exists()) ret.add(fileStart);
+                    if (fileEnd.exists()) ret.add(fileEnd);
                 }
 
                 if (CancellableWorker.isInterrupted()) {

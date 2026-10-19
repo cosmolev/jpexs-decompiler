@@ -16,6 +16,7 @@
  */
 package com.jpexs.decompiler.flash.timeline;
 
+import com.jpexs.helpers.RenderAllocationBudget;
 import com.jpexs.decompiler.flash.AppResources;
 import com.jpexs.decompiler.flash.SWF;
 import com.jpexs.decompiler.flash.TagRemoveListener;
@@ -1522,7 +1523,7 @@ public class Timeline {
             }
         }
         if (clipDepth > -1) {
-            BufferedImage mask = new BufferedImage(image.getWidth(), image.getHeight(), image.getType());
+            BufferedImage mask = RenderAllocationBudget.image(image.getWidth(), image.getHeight(), image.getType());
             Graphics2D gm = (Graphics2D) mask.getGraphics();
             gm.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
             gm.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);

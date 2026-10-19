@@ -16,6 +16,7 @@
  */
 package com.jpexs.decompiler.flash.helpers;
 
+import com.jpexs.helpers.RenderAllocationBudget;
 import com.jpexs.decompiler.flash.SWF;
 import com.jpexs.decompiler.flash.tags.enums.ImageFormat;
 import com.jpexs.decompiler.flash.types.RGBA;
@@ -69,6 +70,19 @@ public class ImageHelper {
     public static BufferedImage read(InputStream input) throws IOException {
         BufferedImage in;
         byte[] data = Helper.readStream(input);
+        if (RenderAllocationBudget.active()) {
+            // Inspect the header before ImageIO/CMYK JPEG allocates decoded pixels. Allow space
+            // for the decoder's raster and conversion scratch; explicit copies are charged below.
+            try (ImageInputStream header = ImageIO.createImageInputStream(new ByteArrayInputStream(data))) {
+                Iterator<ImageReader> readers = ImageIO.getImageReaders(header);
+                if (!readers.hasNext()) throw new IOException("Unrecognized image header");
+                ImageReader reader = readers.next();
+                try {
+                    reader.setInput(header);
+                    RenderAllocationBudget.pixels(reader.getWidth(0), reader.getHeight(0), 8);
+                } finally { reader.dispose(); }
+            }
+        }
         try (ImageInputStream iis = ImageIO.createImageInputStream(new ByteArrayInputStream(data))) {
             CMYKJPEGImageReader r = new CMYKJPEGImageReader(new CMYKJPEGImageReaderSpi());
             r.setInput(iis);
@@ -82,7 +96,7 @@ public class ImageHelper {
         }
 
         if (in == null) {
-            BufferedImage img = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB_PRE);
+            BufferedImage img = RenderAllocationBudget.image(1, 1, BufferedImage.TYPE_INT_ARGB_PRE);
             Graphics g = img.getGraphics();
             g.setColor(SWF.ERROR_COLOR);
             g.fillRect(0, 0, 1, 1);
@@ -94,8 +108,8 @@ public class ImageHelper {
             // convert to ARGB
             int width = in.getWidth();
             int height = in.getHeight();
-            int[] imgData = in.getRGB(0, 0, width, height, null, 0, width);
-            BufferedImage newImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB_PRE);
+            int[] imgData = RenderAllocationBudget.rgb(in);
+            BufferedImage newImage = RenderAllocationBudget.image(width, height, BufferedImage.TYPE_INT_ARGB_PRE);
             newImage.getRaster().setDataElements(0, 0, width, height, imgData);
             return newImage;
         }
@@ -172,7 +186,7 @@ public class ImageHelper {
         if (format == ImageFormat.JPEG) {
             image = fixImageIOJpegBug(image);
         } else if (image.getType() == BufferedImage.TYPE_INT_ARGB_PRE) {
-            BufferedImage image2 = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            BufferedImage image2 = RenderAllocationBudget.image(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
             int[] pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
             int[] pixels2 = ((DataBufferInt) image2.getRaster().getDataBuffer()).getData();
             for (int i = 0; i < pixels.length; i++) {
@@ -210,9 +224,9 @@ public class ImageHelper {
             // convert to RGB without alpha channel
             int width = image.getWidth();
             int height = image.getHeight();
-            BufferedImage newImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            BufferedImage newImage = RenderAllocationBudget.image(width, height, BufferedImage.TYPE_INT_RGB);
             int[] pixels2 = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
-            int[] pixels = image.getRGB(0, 0, width, height, null, 0, width);
+            int[] pixels = RenderAllocationBudget.rgb(image);
             for (int i = 0; i < pixels.length; i++) {
                 pixels2[i] = pixels[i] & 0xffffff;
             }
